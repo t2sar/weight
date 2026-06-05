@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/burn app.html",
+      "source": "/burn%20app.html",
       "destination": "/"
     }
   ]
