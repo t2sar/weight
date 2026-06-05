@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Burn Rate Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(51, 65, 85, 0.8); backdrop-filter: blur(10px); }
+        .tripwire-danger { animation: pulse-red 2s infinite; }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        
+        <!-- Header & Goal Setting -->
+        <div class="glass-panel p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">Burn Rate Dashboard</h1>
+                <p class="text-slate-400 text-sm mt-1">Data-driven fat loss. No emotion, just velocity.</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <label class="text-sm text-slate-300">Goal Weight (kg):</label>
+                <input type="number" id="goalWeightInput" step="0.1" class="w-24 bg-slate-800 border border-slate-600 rounded p-2 text-white text-center focus:outline-none focus:border-emerald-400">
+            </div>
+        </div>
+
+        <!-- KPI Widgets -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="glass-panel p-5 rounded-xl">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Kg To Go</h3>
+                <div id="kgToGo" class="text-4xl font-black text-white">--</div>
+            </div>
+            <div class="glass-panel p-5 rounded-xl">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Current 7-Day Avg</h3>
+                <div id="currentAvg" class="text-4xl font-black text-emerald-400">--</div>
+            </div>
+            <div class="glass-panel p-5 rounded-xl">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Daily Burn Rate</h3>
+                <div id="burnRate" class="text-4xl font-black text-cyan-400">--</div>
+                <p class="text-xs text-slate-500 mt-1">Implied caloric deficit</p>
+            </div>
+            <div id="plateauCard" class="glass-panel p-5 rounded-xl border-l-4 border-slate-600">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">System Status</h3>
+                <div id="systemStatus" class="text-2xl font-bold text-slate-300 mt-2">AWAITING DATA</div>
+            </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="glass-panel p-6 rounded-2xl w-full h-80 relative">
+            <canvas id="weightChart"></canvas>
+        </div>
+
+        <!-- Data Entry & Table -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Input Form -->
+            <div class="glass-panel p-6 rounded-2xl lg:col-span-1 h-fit">
+                <h2 class="text-xl font-bold mb-4">Log Daily Data</h2>
+                <form id="entryForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Date</label>
+                        <input type="date" id="dateInput" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Raw Weight (kg)</label>
+                        <input type="number" id="weightInput" step="0.1" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                    </div>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="proteinInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600">
+                            <span class="text-sm text-slate-300">Hit Protein?</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="stepsInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600">
+                            <span class="text-sm text-slate-300">10k Steps?</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Context / NSV</label>
+                        <select id="contextInput" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2">
+                            <option value="Normal">Normal</option>
+                            <option value="Heavy Carbs/Salt">Heavy Carbs/Salt</option>
+                            <option value="Poor Sleep">Poor Sleep</option>
+                            <option value="Sore/Inflamed">Sore/Inflamed</option>
+                            <option value="Sick">Sick</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded transition-colors">
+                        Log Entry
+                    </button>
+                </form>
+            </div>
+
+            <!-- Data Table -->
+            <div class="glass-panel p-6 rounded-2xl lg:col-span-2 overflow-x-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">The Ledger</h2>
+                    <button onclick="exportToCSV()" class="bg-slate-700 hover:bg-slate-600 text-white text-sm py-1 px-3 rounded transition-colors flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Export CSV
+                    </button>
+                </div>
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="text-xs text-slate-400 uppercase bg-slate-800/50">
+                        <tr>
+                            <th class="px-4 py-3 rounded-tl-lg">Date</th>
+                            <th class="px-4 py-3">Raw (kg)</th>
+                            <th class="px-4 py-3 font-bold text-emerald-400">7-Day Avg</th>
+                            <th class="px-4 py-3">P / S</th>
+                            <th class="px-4 py-3 rounded-tr-lg">Context</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-700/50">
+                        <!-- Rows injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Memory logic: Load from browser storage
+        let weightData = JSON.parse(localStorage.getItem('burnRateData')) || [];
+        let savedGoal = localStorage.getItem('burnRateGoal') || 75.0;
+        
+        document.getElementById('goalWeightInput').value = savedGoal;
+        document.getElementById('dateInput').valueAsDate = new Date();
+        
+        let myChart = null;
+
+        // Auto-save goal weight changes
+        document.getElementById('goalWeightInput').addEventListener('change', function(e) {
+            localStorage.setItem('burnRateGoal', e.target.value);
+            updateDashboard();
+        });
+
+        function calculateMetrics() {
+            weightData.sort((a, b) => new Date(a.date) - new Date(b.date));
+            for (let i = 0; i < weightData.length; i++) {
+                let sum = 0;
+                let count = 0;
+                for (let j = Math.max(0, i - 6); j <= i; j++) {
+                    sum += weightData[j].raw;
+                    count++;
+                }
+                weightData[i].avg7 = parseFloat((sum / count).toFixed(2));
+            }
+        }
+
+        function updateDashboard() {
+            calculateMetrics();
+            const goalWeight = parseFloat(document.getElementById('goalWeightInput').value);
+            const statusEl = document.getElementById('systemStatus');
+            const cardEl = document.getElementById('plateauCard');
+
+            // Handle empty state
+            if (weightData.length === 0) {
+                document.getElementById('currentAvg').innerText = '--';
+                document.getElementById('kgToGo').innerText = '--';
+                document.getElementById('burnRate').innerText = '--';
+                document.getElementById('burnRate').className = 'text-4xl font-black text-slate-400';
+                statusEl.innerText = "AWAITING DATA";
+                statusEl.className = "text-2xl font-bold text-slate-300 mt-2";
+                cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-slate-600";
+                renderTable();
+                renderChart();
+                return;
+            }
+
+            const latest = weightData[weightData.length - 1];
+            
+            // Update Widgets
+            document.getElementById('currentAvg').innerText = latest.avg7 ? latest.avg7.toFixed(2) : '--';
+            const kgToGo = latest.avg7 - goalWeight;
+            document.getElementById('kgToGo').innerText = kgToGo > 0 ? kgToGo.toFixed(1) : '0.0';
+
+            // Calculate Burn Rate
+            let burnRateText = "--";
+            let deficitColor = "text-slate-400";
+            if (weightData.length >= 8) {
+                const currentAvg = latest.avg7;
+                const pastAvg = weightData[weightData.length - 8].avg7;
+                const weightLost = pastAvg - currentAvg;
+                const dailyDeficit = (weightLost * 7700) / 7;
+                
+                if (dailyDeficit > 0) {
+                    burnRateText = `-${Math.round(dailyDeficit)} kcal`;
+                    deficitColor = "text-cyan-400";
+                } else {
+                    burnRateText = `+${Math.abs(Math.round(dailyDeficit))} kcal`;
+                    deficitColor = "text-rose-400";
+                }
+            } else {
+                burnRateText = "Need 8 days";
+                document.getElementById('burnRate').style.fontSize = "1.5rem";
+            }
+            const brElement = document.getElementById('burnRate');
+            brElement.innerText = burnRateText;
+            brElement.className = `text-4xl font-black ${deficitColor}`;
+
+            // Plateau Logic
+            if (weightData.length >= 10) {
+                const current = latest.avg7;
+                const tenDaysAgo = weightData[weightData.length - 10].avg7;
+                if ((tenDaysAgo - current) < 0.2) {
+                    statusEl.innerText = "PLATEAU DETECTED";
+                    statusEl.className = "text-2xl font-bold text-red-500 mt-2";
+                    cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-red-500 tripwire-danger";
+                } else {
+                    statusEl.innerText = "OPTIMAL BURN";
+                    statusEl.className = "text-2xl font-bold text-emerald-400 mt-2";
+                    cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-emerald-500";
+                }
+            } else {
+                statusEl.innerText = "GATHERING DATA";
+                statusEl.className = "text-2xl font-bold text-slate-300 mt-2";
+                cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-slate-600";
+            }
+
+            renderTable();
+            renderChart();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            const reversedData = [...weightData].reverse();
+
+            reversedData.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-800/50 transition-colors";
+                
+                const pIcon = row.protein ? '🍖' : '❌';
+                const sIcon = row.steps ? '👟' : '❌';
+
+                // We pass the true array index to the delete function
+                const trueIndex = weightData.length - 1 - index;
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 whitespace-nowrap flex justify-between items-center">
+                        ${row.date}
+                        <button onclick="deleteEntry(${trueIndex})" class="text-rose-500 hover:text-rose-400 ml-2 font-bold" title="Delete entry">✕</button>
+                    </td>
+                    <td class="px-4 py-3 text-slate-400">${row.raw.toFixed(1)}</td>
+                    <td class="px-4 py-3 font-bold text-emerald-400">${row.avg7 ? row.avg7.toFixed(2) : '-'}</td>
+                    <td class="px-4 py-3 text-xs">${pIcon} ${sIcon}</td>
+                    <td class="px-4 py-3 text-xs text-slate-400">${row.context}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderChart() {
+            const ctx = document.getElementById('weightChart').getContext('2d');
+            
+            if (weightData.length === 0) {
+                if (myChart) myChart.destroy();
+                return;
+            }
+
+            const labels = weightData.map(d => {
+                const date = new Date(d.date);
+                return `${date.getMonth()+1}/${date.getDate()}`;
+            });
+            const rawData = weightData.map(d => d.raw);
+            const avgData = weightData.map(d => d.avg7);
+
+            if (myChart) {
+                myChart.destroy();
+            }
+
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Raw Weight',
+                            data: rawData,
+                            borderColor: 'rgba(148, 163, 184, 0.3)',
+                            backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 3,
+                            tension: 0.3
+                        },
+                        {
+                            label: '7-Day Signal',
+                            data: avgData,
+                            borderColor: '#34d399',
+                            backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                            borderWidth: 4,
+                            pointBackgroundColor: '#0f172a',
+                            pointBorderColor: '#34d399',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#34d399',
+                            padding: 12,
+                            borderColor: 'rgba(51, 65, 85, 1)',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: Math.floor(Math.min(...rawData) - 1),
+                            max: Math.ceil(Math.max(...rawData) + 1),
+                            grid: { color: 'rgba(51, 65, 85, 0.5)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Form Submission
+        document.getElementById('entryForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const newEntry = {
+                date: document.getElementById('dateInput').value,
+                raw: parseFloat(document.getElementById('weightInput').value),
+                protein: document.getElementById('proteinInput').checked,
+                steps: document.getElementById('stepsInput').checked,
+                context: document.getElementById('contextInput').value
+            };
+
+            const existingIndex = weightData.findIndex(d => d.date === newEntry.date);
+            if (existingIndex >= 0) {
+                weightData[existingIndex] = newEntry;
+            } else {
+                weightData.push(newEntry);
+            }
+
+            // Save to browser memory
+            localStorage.setItem('burnRateData', JSON.stringify(weightData));
+            updateDashboard();
+            
+            const nextDate = new Date(newEntry.date);
+            nextDate.setDate(nextDate.getDate() + 1);
+            document.getElementById('dateInput').valueAsDate = nextDate;
+            document.getElementById('weightInput').value = '';
+        });
+
+        // Delete Row Function
+        function deleteEntry(index) {
+            if(confirm("Are you sure you want to delete this entry?")) {
+                weightData.splice(index, 1);
+                localStorage.setItem('burnRateData', JSON.stringify(weightData));
+                updateDashboard();
+            }
+        }
+
+        // Export Function
+        function exportToCSV() {
+            if(weightData.length === 0) return alert("No data to export!");
+            
+            let csvContent = "Date,Raw Weight,7-Day Average,Hit Protein,10k Steps,Context\n";
+            weightData.forEach(row => {
+                let rowArray = [
+                    row.date,
+                    row.raw,
+                    row.avg7 || '',
+                    row.protein ? 'Yes' : 'No',
+                    row.steps ? 'Yes' : 'No',
+                    `"${row.context}"`
+                ];
+                csvContent += rowArray.join(",") + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "burn_rate_export.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Run on load
+        updateDashboard();
+    </script>
+</body>
+</html>
