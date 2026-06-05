@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>window.__APP_CONFIG__ = window.__APP_CONFIG__ || {};</script>
-    <script src="./app-config.js"></script>
+    <script src="./app-config.js" onerror="window.__APP_CONFIG__ = window.__APP_CONFIG__ || {};"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -56,9 +56,9 @@
                     <p id="syncStatus" class="text-xs text-slate-500 mt-1" role="status" aria-live="polite">Sync offline (local mode).</p>
                 </div>
                 <form id="authForm" class="grid grid-cols-1 md:grid-cols-4 gap-2 w-full md:w-auto">
-                    <input type="text" id="usernameInput" maxlength="30" placeholder="Username" aria-label="Username" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
-                    <input type="email" id="emailInput" autocomplete="email" placeholder="Email" aria-label="Email" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
-                    <input type="password" id="passwordInput" autocomplete="current-password" minlength="8" maxlength="72" placeholder="Password (8+ chars)" aria-label="Password" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
+                    <input type="text" id="usernameInput" minlength="1" maxlength="30" placeholder="Username" aria-label="Username" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
+                    <input type="email" id="emailInput" autocomplete="email" required placeholder="Email" aria-label="Email" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
+                    <input type="password" id="passwordInput" autocomplete="current-password" minlength="8" maxlength="72" required placeholder="Password (8+ chars)" aria-label="Password" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
                     <div class="flex gap-2">
                         <button type="button" id="signUpBtn" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold py-2 px-3 rounded transition-colors">Sign Up</button>
                         <button type="button" id="loginBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold py-2 px-3 rounded transition-colors">Login</button>
@@ -215,6 +215,7 @@
         const AUTH_MAX_PASSWORD_LENGTH = 72;
         const AUTH_MAX_USERNAME_LENGTH = 30;
         const CONTEXT_MAX_LENGTH = 100;
+        const DEFAULT_CONTEXT = 'Normal';
         const CLOUD_SAVE_DEBOUNCE_MS = 800;
 
         const AVG_WINDOW_DAYS = 7;
@@ -270,6 +271,7 @@
         const supabase = hasCloudConfig ? window.supabase.createClient(cloudConfig.url, cloudConfig.anonKey) : null;
         let currentUser = null;
         let cloudSyncTimer = null;
+        const pendingCloudDeletes = new Set();
 
         goalInput.value = clamp(savedGoal, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
 
@@ -330,7 +332,7 @@
             logoutBtn.classList.toggle('hidden', !loggedIn);
 
             if (loggedIn) {
-                const displayName = currentUser.user_metadata && currentUser.user_metadata.username ? currentUser.user_metadata.username : currentUser.email;
+                const displayName = currentUser.user_metadata?.username ?? currentUser.email;
                 authStatusEl.textContent = `Signed in as ${displayName}`;
             } else {
                 authStatusEl.textContent = 'Not signed in';
@@ -340,9 +342,9 @@
 
         function validateAuthInput(requireUsername) {
             const username = usernameInput.value.trim();
-            const email = emailInput.value.trim().toLowerCase();
+            const email = emailInput.value.trim();
             const password = passwordInput.value;
-            const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+            const emailOk = emailInput.checkValidity();
 
             if (requireUsername) {
                 if (!username || username.length > AUTH_MAX_USERNAME_LENGTH) {
@@ -405,7 +407,7 @@
                     raw: Number(row.raw),
                     protein: !!row.protein,
                     steps: !!row.steps,
-                    context: row.context || 'Normal'
+                    context: row.context || DEFAULT_CONTEXT
                 });
             }
             weightData = Array.from(map.values());
@@ -444,33 +446,23 @@
                 raw_weight: clamp(Number(row.raw), WEIGHT_MIN_KG, WEIGHT_MAX_KG),
                 protein: !!row.protein,
                 steps: !!row.steps,
-                context: String(row.context || 'Normal').slice(0, CONTEXT_MAX_LENGTH)
+                context: String(row.context || DEFAULT_CONTEXT).slice(0, CONTEXT_MAX_LENGTH)
+                    .replace(/\s+/g, ' ')
+                    .trim() || DEFAULT_CONTEXT
             }));
 
-            const { data: existingRows, error: selectError } = await supabase
-                .from('weight_entries')
-                .select('entry_date')
-                .eq('user_id', currentUser.id);
-            if (selectError) {
-                setSyncStatus(`Sync failed: ${selectError.message}`, 'error');
-                return;
-            }
-
-            const localDates = new Set(entriesToSave.map(r => r.entry_date));
-            const staleDates = (existingRows || [])
-                .map(r => r.entry_date)
-                .filter(date => !localDates.has(date));
-
-            if (staleDates.length > 0) {
+            const deletedDates = Array.from(pendingCloudDeletes);
+            if (deletedDates.length > 0) {
                 const { error: deleteError } = await supabase
                     .from('weight_entries')
                     .delete()
                     .eq('user_id', currentUser.id)
-                    .in('entry_date', staleDates);
+                    .in('entry_date', deletedDates);
                 if (deleteError) {
                     setSyncStatus(`Sync failed: ${deleteError.message}`, 'error');
                     return;
                 }
+                deletedDates.forEach(date => pendingCloudDeletes.delete(date));
             }
 
             if (entriesToSave.length > 0) {
@@ -525,7 +517,7 @@
             ]);
 
             if (dataError || settingsError) {
-                const message = dataError ? dataError.message : settingsError.message;
+                const message = dataError?.message ?? settingsError?.message ?? 'Unknown load error';
                 setSyncStatus(`Load failed: ${message}`, 'error');
                 return;
             }
@@ -535,7 +527,7 @@
                 raw: Number(r.raw_weight),
                 protein: !!r.protein,
                 steps: !!r.steps,
-                context: r.context || 'Normal'
+                context: r.context || DEFAULT_CONTEXT
             }));
             normalizeData();
 
@@ -881,6 +873,7 @@
 
             if (confirm(`Delete entry for ${row.date}?`)) {
                 lastDeleted = { entry: row, index };
+                pendingCloudDeletes.add(row.date);
                 weightData.splice(index, 1);
                 saveData();
                 updateDashboard();
@@ -901,6 +894,7 @@
             if (!lastDeleted) return;
             const { entry, index } = lastDeleted;
             weightData.splice(index, 0, entry);
+            pendingCloudDeletes.delete(entry.date);
             lastDeleted = null;
             this.classList.add('hidden');
             saveData();
@@ -977,6 +971,12 @@
                 // Confirm destructive action
                 if (!confirm('This will replace your current data with the backup. Continue?')) return;
 
+                window.clearTimeout(cloudSyncTimer);
+                const incomingDates = new Set(incoming.map(r => r && r.date).filter(Boolean));
+                pendingCloudDeletes.clear();
+                for (const row of weightData) {
+                    if (row && row.date && !incomingDates.has(row.date)) pendingCloudDeletes.add(row.date);
+                }
                 weightData = incoming;
                 normalizeData();
                 saveData();
@@ -1072,7 +1072,7 @@
                 return;
             }
 
-            currentUser = sessionResult && sessionResult.session ? sessionResult.session.user : null;
+            currentUser = sessionResult?.session?.user ?? null;
             setAuthUIState();
             if (currentUser) {
                 await loadFromCloud();
@@ -1101,11 +1101,6 @@
         });
         logoutBtn.addEventListener('click', () => {
             logout().catch(err => showToast(err.message, 'danger'));
-        });
-
-        document.getElementById('authForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            login().catch(err => showToast(err.message, 'danger'));
         });
 
         initAuthAndSync();

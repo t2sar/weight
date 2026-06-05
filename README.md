@@ -15,7 +15,7 @@ No build step is required.
    - `supabaseAnonKey`
 3. Serve the project directory (example):
    ```bash
-   cd /tmp/workspace/t2sar/weight
+   cd /path/to/weight
    python3 -m http.server 8080
    ```
 4. Open:
@@ -44,7 +44,7 @@ Use Supabase for managed authentication and cloud storage.
 
 ## Authentication + sync flows
 
-- **Sign Up**: username + email + password (8-72 chars)
+- **Sign Up**: username (1-30 chars) + email + password (8-72 chars)
 - **Login**: email + password
 - **Logout**: ends Supabase session
 - **Sync status**: shown in the "Account & Sync" panel
