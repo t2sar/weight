@@ -15,21 +15,33 @@
             70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen">
 
     <div class="max-w-6xl mx-auto space-y-6">
-        
+
         <!-- Header & Goal Setting -->
         <div class="glass-panel p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
                 <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">Burn Rate Dashboard</h1>
                 <p class="text-slate-400 text-sm mt-1">Data-driven fat loss. No emotion, just velocity.</p>
+                <p class="text-slate-500 text-xs mt-2">Tip: Your data lives in this browser. Use Export/Backup occasionally.</p>
             </div>
             <div class="flex items-center gap-3">
-                <label class="text-sm text-slate-300">Goal Weight (kg):</label>
-                <input type="number" id="goalWeightInput" step="0.1" class="w-24 bg-slate-800 border border-slate-600 rounded p-2 text-white text-center focus:outline-none focus:border-emerald-400">
+                <label for="goalWeightInput" class="text-sm text-slate-300">Goal Weight (kg):</label>
+                <input type="number" id="goalWeightInput" step="0.1" min="30" max="300" inputmode="decimal" aria-label="Goal weight in kilograms" class="w-24 bg-slate-800 border border-slate-600 rounded p-2 text-white text-center focus:outline-none focus:border-emerald-400">
             </div>
         </div>
 
@@ -37,56 +49,71 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div class="glass-panel p-5 rounded-xl">
                 <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Kg To Go</h3>
-                <div id="kgToGo" class="text-4xl font-black text-white">--</div>
+                <div id="kgToGo" class="text-4xl font-black text-white" aria-live="polite">--</div>
+                <div class="mt-3">
+                    <div class="flex justify-between text-xs text-slate-400">
+                        <span>Progress</span>
+                        <span id="progressText">--</span>
+                    </div>
+                    <div class="w-full h-2 rounded bg-slate-800 mt-2 overflow-hidden" aria-hidden="true">
+                        <div id="progressBar" class="h-2 bg-emerald-500" style="width: 0%"></div>
+                    </div>
+                </div>
             </div>
             <div class="glass-panel p-5 rounded-xl">
                 <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Current 7-Day Avg</h3>
-                <div id="currentAvg" class="text-4xl font-black text-emerald-400">--</div>
+                <div id="currentAvg" class="text-4xl font-black text-emerald-400" aria-live="polite">--</div>
             </div>
             <div class="glass-panel p-5 rounded-xl">
                 <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Daily Burn Rate</h3>
-                <div id="burnRate" class="text-4xl font-black text-cyan-400">--</div>
+                <div id="burnRate" class="text-4xl font-black text-cyan-400" aria-live="polite">--</div>
                 <p class="text-xs text-slate-500 mt-1">Implied caloric deficit</p>
             </div>
-            <div id="plateauCard" class="glass-panel p-5 rounded-xl border-l-4 border-slate-600">
+            <div id="plateauCard" class="glass-panel p-5 rounded-xl border-l-4 border-slate-600" role="status" aria-live="polite">
                 <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">System Status</h3>
                 <div id="systemStatus" class="text-2xl font-bold text-slate-300 mt-2">AWAITING DATA</div>
+                <p id="systemStatusHint" class="text-xs text-slate-500 mt-2">Log at least 10 days to enable plateau detection.</p>
             </div>
         </div>
 
         <!-- Chart -->
-        <div class="glass-panel p-6 rounded-2xl w-full h-80 relative">
-            <canvas id="weightChart"></canvas>
+        <div class="glass-panel p-4 md:p-6 rounded-2xl w-full h-72 md:h-80 relative">
+            <canvas id="weightChart" aria-label="Weight chart" role="img"></canvas>
         </div>
 
         <!-- Data Entry & Table -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
+
             <!-- Input Form -->
             <div class="glass-panel p-6 rounded-2xl lg:col-span-1 h-fit">
                 <h2 class="text-xl font-bold mb-4">Log Daily Data</h2>
+
+                <div id="toast" class="hidden mb-4 p-3 rounded bg-slate-800 border border-slate-700 text-sm" role="alert" aria-live="assertive"></div>
+
                 <form id="entryForm" class="space-y-4">
                     <div>
-                        <label class="block text-sm text-slate-400 mb-1">Date</label>
-                        <input type="date" id="dateInput" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                        <label for="dateInput" class="block text-sm text-slate-400 mb-1">Date</label>
+                        <input type="date" id="dateInput" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" aria-label="Date">
+                        <p class="text-xs text-slate-500 mt-1">Future dates are blocked.</p>
                     </div>
                     <div>
-                        <label class="block text-sm text-slate-400 mb-1">Raw Weight (kg)</label>
-                        <input type="number" id="weightInput" step="0.1" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                        <label for="weightInput" class="block text-sm text-slate-400 mb-1">Raw Weight (kg)</label>
+                        <input type="number" id="weightInput" step="0.1" min="30" max="400" inputmode="decimal" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" aria-label="Raw weight in kilograms">
+                        <p class="text-xs text-slate-500 mt-1">Valid range: 30–400 kg.</p>
                     </div>
                     <div class="flex gap-4">
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" id="proteinInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600">
+                            <input type="checkbox" id="proteinInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600" aria-label="Hit protein target">
                             <span class="text-sm text-slate-300">Hit Protein?</span>
                         </label>
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" id="stepsInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600">
+                            <input type="checkbox" id="stepsInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600" aria-label="Hit 10k steps">
                             <span class="text-sm text-slate-300">10k Steps?</span>
                         </label>
                     </div>
                     <div>
-                        <label class="block text-sm text-slate-400 mb-1">Context / NSV</label>
-                        <select id="contextInput" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2">
+                        <label for="contextInput" class="block text-sm text-slate-400 mb-1">Context / NSV</label>
+                        <select id="contextInput" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2" aria-label="Context">
                             <option value="Normal">Normal</option>
                             <option value="Heavy Carbs/Salt">Heavy Carbs/Salt</option>
                             <option value="Poor Sleep">Poor Sleep</option>
@@ -94,20 +121,40 @@
                             <option value="Sick">Sick</option>
                         </select>
                     </div>
-                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded transition-colors">
-                        Log Entry
-                    </button>
+
+                    <div class="flex gap-2">
+                        <button type="submit" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded transition-colors">
+                            Log Entry
+                        </button>
+                        <button type="button" id="backupBtn" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors" aria-label="Backup data">
+                            Backup
+                        </button>
+                        <label class="sr-only" for="restoreFile">Restore backup JSON</label>
+                        <input type="file" id="restoreFile" accept="application/json" class="hidden" />
+                        <button type="button" id="restoreBtn" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors" aria-label="Restore data">
+                            Restore
+                        </button>
+                    </div>
+
+                    <p class="text-xs text-slate-500">Backup/Restore uses a JSON file so you can move data between devices/browsers.</p>
                 </form>
             </div>
 
             <!-- Data Table -->
             <div class="glass-panel p-6 rounded-2xl lg:col-span-2 overflow-x-auto">
-                <div class="flex justify-between items-center mb-4">
+                <div class="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-3">
                     <h2 class="text-xl font-bold">The Ledger</h2>
-                    <button onclick="exportToCSV()" class="bg-slate-700 hover:bg-slate-600 text-white text-sm py-1 px-3 rounded transition-colors flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                        Export CSV
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button id="undoBtn" class="hidden bg-slate-700 hover:bg-slate-600 text-white text-sm py-1 px-3 rounded transition-colors" type="button">
+                            Undo Delete
+                        </button>
+                        <button id="exportBtn" type="button" class="bg-slate-700 hover:bg-slate-600 text-white text-sm py-1 px-3 rounded transition-colors flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                            Export CSV
+                        </button>
+                    </div>
                 </div>
                 <table class="w-full text-left text-sm text-slate-300">
                     <thead class="text-xs text-slate-400 uppercase bg-slate-800/50">
@@ -128,27 +175,146 @@
     </div>
 
     <script>
+        /**
+         * Burn Rate Dashboard
+         * Key constants (avoid magic numbers):
+         * - AVG_WINDOW_DAYS: rolling window for signal
+         * - BURN_RATE_LOOKBACK_DAYS: compare current avg to N days ago
+         * - PLATEAU_LOOKBACK_DAYS + PLATEAU_KG_THRESHOLD: plateau detection
+         * - KCAL_PER_KG: approximate energy in 1 kg fat mass
+         */
+        const STORAGE_KEYS = {
+            data: 'burnRateData',
+            goal: 'burnRateGoal',
+            startWeight: 'burnRateStartWeight'
+        };
+
+        const AVG_WINDOW_DAYS = 7;
+        const BURN_RATE_LOOKBACK_DAYS = 7; // Compare avg7 now vs avg7 N days ago
+        const PLATEAU_LOOKBACK_DAYS = 10;
+        const PLATEAU_KG_THRESHOLD = 0.2;
+        const KCAL_PER_KG = 7700;
+
+        // Reasonable defaults + validation bounds
+        const GOAL_DEFAULT_KG = 75.0;
+        const GOAL_MIN_KG = 30;
+        const GOAL_MAX_KG = 300;
+        const WEIGHT_MIN_KG = 30;
+        const WEIGHT_MAX_KG = 400;
+
+        function safeParseJSON(value, fallback) {
+            try {
+                return JSON.parse(value);
+            } catch {
+                return fallback;
+            }
+        }
+
         // Memory logic: Load from browser storage
-        let weightData = JSON.parse(localStorage.getItem('burnRateData')) || [];
-        let savedGoal = localStorage.getItem('burnRateGoal') || 75.0;
-        
-        document.getElementById('goalWeightInput').value = savedGoal;
-        document.getElementById('dateInput').valueAsDate = new Date();
-        
+        let weightData = safeParseJSON(localStorage.getItem(STORAGE_KEYS.data), []) || [];
+        let savedGoalRaw = localStorage.getItem(STORAGE_KEYS.goal);
+        let savedGoal = savedGoalRaw !== null ? parseFloat(savedGoalRaw) : GOAL_DEFAULT_KG;
+        if (!Number.isFinite(savedGoal)) savedGoal = GOAL_DEFAULT_KG;
+
+        // Track an initial "start weight" for progress visualization
+        let savedStartWeightRaw = localStorage.getItem(STORAGE_KEYS.startWeight);
+        let savedStartWeight = savedStartWeightRaw !== null ? parseFloat(savedStartWeightRaw) : null;
+        if (!Number.isFinite(savedStartWeight)) savedStartWeight = null;
+
+        const goalInput = document.getElementById('goalWeightInput');
+        const dateInput = document.getElementById('dateInput');
+        const weightInput = document.getElementById('weightInput');
+        const toast = document.getElementById('toast');
+
+        goalInput.value = clamp(savedGoal, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
+
+        // Prevent future dates (timezone safe by using yyyy-mm-dd)
+        const todayStr = formatDateInputValue(new Date());
+        dateInput.max = todayStr;
+        dateInput.value = todayStr;
+
         let myChart = null;
 
-        // Auto-save goal weight changes
-        document.getElementById('goalWeightInput').addEventListener('change', function(e) {
-            localStorage.setItem('burnRateGoal', e.target.value);
+        // Undo delete buffer
+        let lastDeleted = null; // { entry, index }
+
+        function clamp(n, min, max) {
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function showToast(message, variant = 'info') {
+            const variants = {
+                info: 'bg-slate-800 border-slate-700',
+                ok: 'bg-emerald-900/40 border-emerald-700',
+                warn: 'bg-amber-900/40 border-amber-700',
+                danger: 'bg-rose-900/40 border-rose-700'
+            };
+            toast.className = `mb-4 p-3 rounded border text-sm ${variants[variant] || variants.info}`;
+            toast.textContent = message;
+            toast.classList.remove('hidden');
+            window.clearTimeout(showToast._t);
+            showToast._t = window.setTimeout(() => toast.classList.add('hidden'), 4000);
+        }
+
+        function formatDateInputValue(d) {
+            // Always build YYYY-MM-DD in local time (avoids timezone shifts)
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function parseDateValue(dateStr) {
+            // Parse YYYY-MM-DD safely as local date (not UTC)
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, (m - 1), d);
+        }
+
+        // Auto-save goal weight changes + validate
+        goalInput.addEventListener('change', function(e) {
+            const v = parseFloat(e.target.value);
+            if (!Number.isFinite(v)) {
+                showToast('Goal weight must be a number.', 'warn');
+                goalInput.value = clamp(GOAL_DEFAULT_KG, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
+                return;
+            }
+            const clamped = clamp(v, GOAL_MIN_KG, GOAL_MAX_KG);
+            if (clamped !== v) showToast(`Goal weight clamped to ${GOAL_MIN_KG}–${GOAL_MAX_KG} kg.`, 'warn');
+            goalInput.value = clamped.toFixed(1);
+            localStorage.setItem(STORAGE_KEYS.goal, String(clamped));
             updateDashboard();
         });
 
+        // Ensure entries are unique per date, sorted ascending
+        function normalizeData() {
+            // Filter invalid rows
+            weightData = (weightData || []).filter(r => r && typeof r.date === 'string' && Number.isFinite(r.raw));
+
+            // De-dupe by date (keep last)
+            const map = new Map();
+            for (const row of weightData) {
+                map.set(row.date, {
+                    date: row.date,
+                    raw: Number(row.raw),
+                    protein: !!row.protein,
+                    steps: !!row.steps,
+                    context: row.context || 'Normal'
+                });
+            }
+            weightData = Array.from(map.values());
+
+            // Sort
+            weightData.sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date));
+        }
+
         function calculateMetrics() {
-            weightData.sort((a, b) => new Date(a.date) - new Date(b.date));
+            // Simple and safe: O(n*window). For typical personal tracking size this is fine.
+            // (We keep it correct and readable; chart limiting handles big n.)
+            normalizeData();
             for (let i = 0; i < weightData.length; i++) {
                 let sum = 0;
                 let count = 0;
-                for (let j = Math.max(0, i - 6); j <= i; j++) {
+                for (let j = Math.max(0, i - (AVG_WINDOW_DAYS - 1)); j <= i; j++) {
                     sum += weightData[j].raw;
                     count++;
                 }
@@ -156,74 +322,129 @@
             }
         }
 
+        function saveData() {
+            localStorage.setItem(STORAGE_KEYS.data, JSON.stringify(weightData));
+        }
+
+        function updateProgress(latestAvg, goalWeight) {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+
+            if (!Number.isFinite(latestAvg) || !Number.isFinite(goalWeight)) {
+                progressBar.style.width = '0%';
+                progressText.textContent = '--';
+                return;
+            }
+
+            // Start weight: if not set, set from first avg7 available.
+            if (!Number.isFinite(savedStartWeight) || savedStartWeight === null) {
+                savedStartWeight = latestAvg;
+                localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+            }
+
+            const start = savedStartWeight;
+            // If goal is above start (bulk?), avoid negative progress
+            const totalToLose = Math.max(0.0001, start - goalWeight);
+            const lostSoFar = start - latestAvg;
+            const pct = clamp((lostSoFar / totalToLose) * 100, 0, 100);
+
+            progressBar.style.width = `${pct.toFixed(1)}%`;
+            progressText.textContent = `${pct.toFixed(0)}%`;
+        }
+
         function updateDashboard() {
             calculateMetrics();
-            const goalWeight = parseFloat(document.getElementById('goalWeightInput').value);
+            const goalWeight = parseFloat(goalInput.value);
             const statusEl = document.getElementById('systemStatus');
+            const hintEl = document.getElementById('systemStatusHint');
             const cardEl = document.getElementById('plateauCard');
+            const burnEl = document.getElementById('burnRate');
 
             // Handle empty state
-            if (weightData.length === 0) {
+            if (!weightData || weightData.length === 0) {
                 document.getElementById('currentAvg').innerText = '--';
                 document.getElementById('kgToGo').innerText = '--';
-                document.getElementById('burnRate').innerText = '--';
-                document.getElementById('burnRate').className = 'text-4xl font-black text-slate-400';
-                statusEl.innerText = "AWAITING DATA";
-                statusEl.className = "text-2xl font-bold text-slate-300 mt-2";
-                cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-slate-600";
+                burnEl.innerText = '--';
+                burnEl.className = 'text-4xl font-black text-slate-400';
+                burnEl.style.fontSize = '';
+                statusEl.innerText = 'AWAITING DATA';
+                statusEl.className = 'text-2xl font-bold text-slate-300 mt-2';
+                hintEl.innerText = 'Log some days to compute your signal and burn rate.';
+                cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-slate-600';
+
+                // Reset progress
+                document.getElementById('progressBar').style.width = '0%';
+                document.getElementById('progressText').textContent = '--';
+
                 renderTable();
                 renderChart();
                 return;
             }
 
             const latest = weightData[weightData.length - 1];
-            
-            // Update Widgets
-            document.getElementById('currentAvg').innerText = latest.avg7 ? latest.avg7.toFixed(2) : '--';
-            const kgToGo = latest.avg7 - goalWeight;
-            document.getElementById('kgToGo').innerText = kgToGo > 0 ? kgToGo.toFixed(1) : '0.0';
 
-            // Calculate Burn Rate
-            let burnRateText = "--";
-            let deficitColor = "text-slate-400";
-            if (weightData.length >= 8) {
+            // Update Widgets
+            const latestAvg = Number.isFinite(latest.avg7) ? latest.avg7 : null;
+            document.getElementById('currentAvg').innerText = latestAvg !== null ? latestAvg.toFixed(2) : '--';
+
+            const kgToGo = (latestAvg !== null ? (latestAvg - goalWeight) : null);
+            document.getElementById('kgToGo').innerText = (kgToGo !== null && kgToGo > 0) ? kgToGo.toFixed(1) : '0.0';
+
+            updateProgress(latestAvg, goalWeight);
+
+            // Calculate Burn Rate (compare avg7 now vs avg7 N days ago)
+            let burnRateText = '--';
+            let deficitColor = 'text-slate-400';
+            burnEl.style.fontSize = '';
+
+            const neededDaysForBurn = AVG_WINDOW_DAYS + BURN_RATE_LOOKBACK_DAYS;
+            if (weightData.length >= neededDaysForBurn) {
                 const currentAvg = latest.avg7;
-                const pastAvg = weightData[weightData.length - 8].avg7;
+                const pastIndex = weightData.length - 1 - BURN_RATE_LOOKBACK_DAYS;
+                const pastAvg = weightData[pastIndex].avg7;
+
                 const weightLost = pastAvg - currentAvg;
-                const dailyDeficit = (weightLost * 7700) / 7;
-                
+                const dailyDeficit = (weightLost * KCAL_PER_KG) / BURN_RATE_LOOKBACK_DAYS;
+
                 if (dailyDeficit > 0) {
                     burnRateText = `-${Math.round(dailyDeficit)} kcal`;
-                    deficitColor = "text-cyan-400";
-                } else {
+                    deficitColor = 'text-cyan-400';
+                } else if (dailyDeficit < 0) {
                     burnRateText = `+${Math.abs(Math.round(dailyDeficit))} kcal`;
-                    deficitColor = "text-rose-400";
+                    deficitColor = 'text-rose-400';
+                } else {
+                    burnRateText = '0 kcal';
+                    deficitColor = 'text-slate-300';
                 }
             } else {
-                burnRateText = "Need 8 days";
-                document.getElementById('burnRate').style.fontSize = "1.5rem";
+                burnRateText = `Need ${neededDaysForBurn} days`;
+                burnEl.style.fontSize = '1.25rem';
             }
-            const brElement = document.getElementById('burnRate');
-            brElement.innerText = burnRateText;
-            brElement.className = `text-4xl font-black ${deficitColor}`;
+
+            burnEl.innerText = burnRateText;
+            burnEl.className = `text-4xl font-black ${deficitColor}`;
 
             // Plateau Logic
-            if (weightData.length >= 10) {
+            if (weightData.length >= PLATEAU_LOOKBACK_DAYS) {
                 const current = latest.avg7;
-                const tenDaysAgo = weightData[weightData.length - 10].avg7;
-                if ((tenDaysAgo - current) < 0.2) {
-                    statusEl.innerText = "PLATEAU DETECTED";
-                    statusEl.className = "text-2xl font-bold text-red-500 mt-2";
-                    cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-red-500 tripwire-danger";
+                const past = weightData[weightData.length - PLATEAU_LOOKBACK_DAYS].avg7;
+                const delta = past - current;
+                if (delta < PLATEAU_KG_THRESHOLD) {
+                    statusEl.innerText = 'PLATEAU DETECTED';
+                    statusEl.className = 'text-2xl font-bold text-red-500 mt-2';
+                    hintEl.innerText = `Less than ${PLATEAU_KG_THRESHOLD.toFixed(1)} kg change over ${PLATEAU_LOOKBACK_DAYS} days.`;
+                    cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-red-500 tripwire-danger';
                 } else {
-                    statusEl.innerText = "OPTIMAL BURN";
-                    statusEl.className = "text-2xl font-bold text-emerald-400 mt-2";
-                    cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-emerald-500";
+                    statusEl.innerText = 'OPTIMAL BURN';
+                    statusEl.className = 'text-2xl font-bold text-emerald-400 mt-2';
+                    hintEl.innerText = `${delta.toFixed(2)} kg down over ${PLATEAU_LOOKBACK_DAYS} days.`;
+                    cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-emerald-500';
                 }
             } else {
-                statusEl.innerText = "GATHERING DATA";
-                statusEl.className = "text-2xl font-bold text-slate-300 mt-2";
-                cardEl.className = "glass-panel p-5 rounded-xl border-l-4 border-slate-600";
+                statusEl.innerText = 'GATHERING DATA';
+                statusEl.className = 'text-2xl font-bold text-slate-300 mt-2';
+                hintEl.innerText = `Need ${PLATEAU_LOOKBACK_DAYS} days for plateau detection.`;
+                cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-slate-600';
             }
 
             renderTable();
@@ -233,13 +454,16 @@
         function renderTable() {
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
-            
+
             const reversedData = [...weightData].reverse();
 
             reversedData.forEach((row, index) => {
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-800/50 transition-colors";
-                
+                tr.className = 'hover:bg-slate-800/50 transition-colors';
+
+                // Avoid emoji-only meaning for accessibility by adding text alternatives
+                const pText = row.protein ? 'Protein: Yes' : 'Protein: No';
+                const sText = row.steps ? 'Steps: Yes' : 'Steps: No';
                 const pIcon = row.protein ? '🍖' : '❌';
                 const sIcon = row.steps ? '👟' : '❌';
 
@@ -248,32 +472,38 @@
 
                 tr.innerHTML = `
                     <td class="px-4 py-3 whitespace-nowrap flex justify-between items-center">
-                        ${row.date}
-                        <button onclick="deleteEntry(${trueIndex})" class="text-rose-500 hover:text-rose-400 ml-2 font-bold" title="Delete entry">✕</button>
+                        <span>${row.date}</span>
+                        <button type="button" onclick="deleteEntry(${trueIndex})" class="text-rose-500 hover:text-rose-400 ml-2 font-bold" title="Delete entry" aria-label="Delete entry for ${row.date}">✕</button>
                     </td>
-                    <td class="px-4 py-3 text-slate-400">${row.raw.toFixed(1)}</td>
-                    <td class="px-4 py-3 font-bold text-emerald-400">${row.avg7 ? row.avg7.toFixed(2) : '-'}</td>
-                    <td class="px-4 py-3 text-xs">${pIcon} ${sIcon}</td>
-                    <td class="px-4 py-3 text-xs text-slate-400">${row.context}</td>
+                    <td class="px-4 py-3 text-slate-400">${Number(row.raw).toFixed(1)}</td>
+                    <td class="px-4 py-3 font-bold text-emerald-400">${Number.isFinite(row.avg7) ? Number(row.avg7).toFixed(2) : '-'}</td>
+                    <td class="px-4 py-3 text-xs" aria-label="${pText}, ${sText}"><span aria-hidden="true">${pIcon} ${sIcon}</span></td>
+                    <td class="px-4 py-3 text-xs text-slate-400">${row.context || ''}</td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
         function renderChart() {
-            const ctx = document.getElementById('weightChart').getContext('2d');
-            
-            if (weightData.length === 0) {
+            const canvas = document.getElementById('weightChart');
+            const ctx = canvas.getContext('2d');
+
+            if (!weightData || weightData.length === 0) {
                 if (myChart) myChart.destroy();
                 return;
             }
 
-            const labels = weightData.map(d => {
-                const date = new Date(d.date);
-                return `${date.getMonth()+1}/${date.getDate()}`;
+            // Performance: cap points shown (still keep full data in table/export)
+            const MAX_POINTS = 180;
+            const sliceStart = Math.max(0, weightData.length - MAX_POINTS);
+            const chartData = weightData.slice(sliceStart);
+
+            const labels = chartData.map(d => {
+                const date = parseDateValue(d.date);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
             });
-            const rawData = weightData.map(d => d.raw);
-            const avgData = weightData.map(d => d.avg7);
+            const rawData = chartData.map(d => d.raw);
+            const avgData = chartData.map(d => d.avg7);
 
             if (myChart) {
                 myChart.destroy();
@@ -294,7 +524,7 @@
                             backgroundColor: 'rgba(148, 163, 184, 0.1)',
                             borderWidth: 2,
                             borderDash: [5, 5],
-                            pointRadius: 3,
+                            pointRadius: rawData.length > 60 ? 0 : 3,
                             tension: 0.3
                         },
                         {
@@ -306,7 +536,7 @@
                             pointBackgroundColor: '#0f172a',
                             pointBorderColor: '#34d399',
                             pointBorderWidth: 2,
-                            pointRadius: 4,
+                            pointRadius: avgData.length > 60 ? 0 : 4,
                             tension: 0.4,
                             fill: true
                         }
@@ -346,46 +576,109 @@
         // Form Submission
         document.getElementById('entryForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            
+
+            const dateStr = dateInput.value;
+            if (!dateStr) {
+                showToast('Please pick a date.', 'warn');
+                return;
+            }
+
+            // Block future dates
+            if (dateStr > todayStr) {
+                showToast('Future dates are not allowed.', 'danger');
+                dateInput.value = todayStr;
+                return;
+            }
+
+            const raw = parseFloat(weightInput.value);
+            if (!Number.isFinite(raw)) {
+                showToast('Weight must be a number.', 'warn');
+                return;
+            }
+            if (raw < WEIGHT_MIN_KG || raw > WEIGHT_MAX_KG) {
+                showToast(`Weight must be between ${WEIGHT_MIN_KG} and ${WEIGHT_MAX_KG} kg.`, 'warn');
+                return;
+            }
+
             const newEntry = {
-                date: document.getElementById('dateInput').value,
-                raw: parseFloat(document.getElementById('weightInput').value),
+                date: dateStr,
+                raw: raw,
                 protein: document.getElementById('proteinInput').checked,
                 steps: document.getElementById('stepsInput').checked,
                 context: document.getElementById('contextInput').value
             };
 
+            // Upsert by date
             const existingIndex = weightData.findIndex(d => d.date === newEntry.date);
             if (existingIndex >= 0) {
                 weightData[existingIndex] = newEntry;
+                showToast(`Updated entry for ${newEntry.date}.`, 'ok');
             } else {
                 weightData.push(newEntry);
+                showToast(`Logged entry for ${newEntry.date}.`, 'ok');
             }
 
-            // Save to browser memory
-            localStorage.setItem('burnRateData', JSON.stringify(weightData));
+            // Save + update
+            saveData();
+
+            // Initialize start weight on first-ever entry
+            normalizeData();
+            if (weightData.length === 1) {
+                savedStartWeight = newEntry.raw;
+                localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+            }
+
             updateDashboard();
-            
-            const nextDate = new Date(newEntry.date);
+
+            // Move to next day
+            const nextDate = parseDateValue(newEntry.date);
             nextDate.setDate(nextDate.getDate() + 1);
-            document.getElementById('dateInput').valueAsDate = nextDate;
-            document.getElementById('weightInput').value = '';
+            const nextDateStr = formatDateInputValue(nextDate);
+            dateInput.value = nextDateStr <= todayStr ? nextDateStr : todayStr;
+
+            weightInput.value = '';
+            weightInput.focus();
         });
 
-        // Delete Row Function
+        // Delete Row Function + undo
         function deleteEntry(index) {
-            if(confirm("Are you sure you want to delete this entry?")) {
+            const row = weightData[index];
+            if (!row) return;
+
+            if (confirm(`Delete entry for ${row.date}?`)) {
+                lastDeleted = { entry: row, index };
                 weightData.splice(index, 1);
-                localStorage.setItem('burnRateData', JSON.stringify(weightData));
+                saveData();
                 updateDashboard();
+
+                const undoBtn = document.getElementById('undoBtn');
+                undoBtn.classList.remove('hidden');
+                showToast('Entry deleted. You can Undo.', 'warn');
+
+                window.clearTimeout(deleteEntry._t);
+                deleteEntry._t = window.setTimeout(() => {
+                    lastDeleted = null;
+                    undoBtn.classList.add('hidden');
+                }, 12000);
             }
         }
 
-        // Export Function
+        document.getElementById('undoBtn').addEventListener('click', function() {
+            if (!lastDeleted) return;
+            const { entry, index } = lastDeleted;
+            weightData.splice(index, 0, entry);
+            lastDeleted = null;
+            this.classList.add('hidden');
+            saveData();
+            updateDashboard();
+            showToast('Delete undone.', 'ok');
+        });
+
+        // Export Function (CSV)
         function exportToCSV() {
-            if(weightData.length === 0) return alert("No data to export!");
-            
-            let csvContent = "Date,Raw Weight,7-Day Average,Hit Protein,10k Steps,Context\n";
+            if (!weightData || weightData.length === 0) return alert('No data to export!');
+
+            let csvContent = 'Date,Raw Weight,7-Day Average,Hit Protein,10k Steps,Context\n';
             weightData.forEach(row => {
                 let rowArray = [
                     row.date,
@@ -393,21 +686,95 @@
                     row.avg7 || '',
                     row.protein ? 'Yes' : 'No',
                     row.steps ? 'Yes' : 'No',
-                    `"${row.context}"`
+                    `"${String(row.context || '').replaceAll('"', '""')}"`
                 ];
-                csvContent += rowArray.join(",") + "\n";
+                csvContent += rowArray.join(',') + '\n';
             });
 
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
+            const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
-            link.setAttribute("href", url);
-            link.setAttribute("download", "burn_rate_export.csv");
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'burn_rate_export.csv');
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         }
+
+        document.getElementById('exportBtn').addEventListener('click', exportToCSV);
+
+        // Backup / Restore (JSON)
+        function exportBackupJSON() {
+            const payload = {
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                goalWeight: parseFloat(goalInput.value),
+                startWeight: savedStartWeight,
+                data: weightData
+            };
+
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'burn_rate_backup.json');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function restoreBackupJSON(file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const parsed = safeParseJSON(reader.result, null);
+                if (!parsed || typeof parsed !== 'object') {
+                    showToast('Invalid backup file.', 'danger');
+                    return;
+                }
+
+                const incoming = Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.weightData) ? parsed.weightData : null);
+                if (!incoming) {
+                    showToast('Backup missing data array.', 'danger');
+                    return;
+                }
+
+                // Confirm destructive action
+                if (!confirm('This will replace your current data with the backup. Continue?')) return;
+
+                weightData = incoming;
+                normalizeData();
+                saveData();
+
+                if (Number.isFinite(parsed.goalWeight)) {
+                    const g = clamp(parsed.goalWeight, GOAL_MIN_KG, GOAL_MAX_KG);
+                    goalInput.value = g.toFixed(1);
+                    localStorage.setItem(STORAGE_KEYS.goal, String(g));
+                }
+                if (Number.isFinite(parsed.startWeight)) {
+                    savedStartWeight = parsed.startWeight;
+                    localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+                } else {
+                    // Recompute start weight as first avg when possible
+                    savedStartWeight = null;
+                    localStorage.removeItem(STORAGE_KEYS.startWeight);
+                }
+
+                showToast('Backup restored.', 'ok');
+                updateDashboard();
+            };
+            reader.onerror = () => showToast('Could not read file.', 'danger');
+            reader.readAsText(file);
+        }
+
+        document.getElementById('backupBtn').addEventListener('click', exportBackupJSON);
+        document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('restoreFile').click());
+        document.getElementById('restoreFile').addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) restoreBackupJSON(file);
+            e.target.value = '';
+        });
 
         // Run on load
         updateDashboard();
