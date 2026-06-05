@@ -6,6 +6,9 @@
     <title>Burn Rate Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>window.__APP_CONFIG__ = window.__APP_CONFIG__ || {};</script>
+    <script src="./app-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .glass-panel { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(51, 65, 85, 0.8); backdrop-filter: blur(10px); }
@@ -37,11 +40,31 @@
             <div>
                 <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">Burn Rate Dashboard</h1>
                 <p class="text-slate-400 text-sm mt-1">Data-driven fat loss. No emotion, just velocity.</p>
-                <p class="text-slate-500 text-xs mt-2">Tip: Your data lives in this browser. Use Export/Backup occasionally.</p>
+                <p class="text-slate-500 text-xs mt-2">Tip: Sign in to enable cloud sync across devices. Backup/Restore is still available.</p>
             </div>
             <div class="flex items-center gap-3">
                 <label for="goalWeightInput" class="text-sm text-slate-300">Goal Weight (kg):</label>
                 <input type="number" id="goalWeightInput" step="0.1" min="30" max="300" inputmode="decimal" aria-label="Goal weight in kilograms" class="w-24 bg-slate-800 border border-slate-600 rounded p-2 text-white text-center focus:outline-none focus:border-emerald-400">
+            </div>
+        </div>
+
+        <div class="glass-panel p-6 rounded-2xl">
+            <div class="flex flex-col md:flex-row md:items-end gap-4">
+                <div class="grow">
+                    <h2 class="text-xl font-bold mb-1">Account & Sync</h2>
+                    <p id="authStatus" class="text-sm text-slate-300">Not signed in</p>
+                    <p id="syncStatus" class="text-xs text-slate-500 mt-1" role="status" aria-live="polite">Sync offline (local mode).</p>
+                </div>
+                <form id="authForm" class="grid grid-cols-1 md:grid-cols-4 gap-2 w-full md:w-auto">
+                    <input type="text" id="usernameInput" maxlength="30" placeholder="Username" aria-label="Username" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
+                    <input type="email" id="emailInput" autocomplete="email" placeholder="Email" aria-label="Email" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
+                    <input type="password" id="passwordInput" autocomplete="current-password" minlength="8" maxlength="72" placeholder="Password (8+ chars)" aria-label="Password" class="bg-slate-800 border border-slate-600 rounded p-2 text-white" />
+                    <div class="flex gap-2">
+                        <button type="button" id="signUpBtn" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold py-2 px-3 rounded transition-colors">Sign Up</button>
+                        <button type="button" id="loginBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold py-2 px-3 rounded transition-colors">Login</button>
+                        <button type="button" id="logoutBtn" class="bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold py-2 px-3 rounded transition-colors hidden">Logout</button>
+                    </div>
+                </form>
             </div>
         </div>
 
@@ -188,6 +211,11 @@
             goal: 'burnRateGoal',
             startWeight: 'burnRateStartWeight'
         };
+        const AUTH_MIN_PASSWORD_LENGTH = 8;
+        const AUTH_MAX_PASSWORD_LENGTH = 72;
+        const AUTH_MAX_USERNAME_LENGTH = 30;
+        const CONTEXT_MAX_LENGTH = 100;
+        const CLOUD_SAVE_DEBOUNCE_MS = 800;
 
         const AVG_WINDOW_DAYS = 7;
         const BURN_RATE_LOOKBACK_DAYS = 7; // Compare avg7 now vs avg7 N days ago
@@ -225,6 +253,23 @@
         const dateInput = document.getElementById('dateInput');
         const weightInput = document.getElementById('weightInput');
         const toast = document.getElementById('toast');
+        const authStatusEl = document.getElementById('authStatus');
+        const syncStatusEl = document.getElementById('syncStatus');
+        const usernameInput = document.getElementById('usernameInput');
+        const emailInput = document.getElementById('emailInput');
+        const passwordInput = document.getElementById('passwordInput');
+        const signUpBtn = document.getElementById('signUpBtn');
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+
+        const cloudConfig = {
+            url: (window.__APP_CONFIG__ && window.__APP_CONFIG__.supabaseUrl) || '',
+            anonKey: (window.__APP_CONFIG__ && window.__APP_CONFIG__.supabaseAnonKey) || ''
+        };
+        const hasCloudConfig = Boolean(cloudConfig.url && cloudConfig.anonKey);
+        const supabase = hasCloudConfig ? window.supabase.createClient(cloudConfig.url, cloudConfig.anonKey) : null;
+        let currentUser = null;
+        let cloudSyncTimer = null;
 
         goalInput.value = clamp(savedGoal, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
 
@@ -256,6 +301,67 @@
             showToast._t = window.setTimeout(() => toast.classList.add('hidden'), 4000);
         }
 
+        function setSyncStatus(message, variant = 'neutral') {
+            const variantClasses = {
+                neutral: 'text-xs text-slate-500 mt-1',
+                ok: 'text-xs text-emerald-400 mt-1',
+                warn: 'text-xs text-amber-400 mt-1',
+                error: 'text-xs text-rose-400 mt-1'
+            };
+            syncStatusEl.className = variantClasses[variant] || variantClasses.neutral;
+            syncStatusEl.textContent = message;
+        }
+
+        function setAuthUIState() {
+            if (!hasCloudConfig) {
+                authStatusEl.textContent = 'Cloud backend not configured';
+                signUpBtn.disabled = true;
+                loginBtn.disabled = true;
+                logoutBtn.disabled = true;
+                logoutBtn.classList.add('hidden');
+                setSyncStatus('Set app-config.js to enable authentication and sync.', 'warn');
+                return;
+            }
+
+            const loggedIn = !!currentUser;
+            signUpBtn.disabled = loggedIn;
+            loginBtn.disabled = loggedIn;
+            logoutBtn.disabled = !loggedIn;
+            logoutBtn.classList.toggle('hidden', !loggedIn);
+
+            if (loggedIn) {
+                const displayName = currentUser.user_metadata && currentUser.user_metadata.username ? currentUser.user_metadata.username : currentUser.email;
+                authStatusEl.textContent = `Signed in as ${displayName}`;
+            } else {
+                authStatusEl.textContent = 'Not signed in';
+                setSyncStatus('Sync offline (local mode).', 'neutral');
+            }
+        }
+
+        function validateAuthInput(requireUsername) {
+            const username = usernameInput.value.trim();
+            const email = emailInput.value.trim().toLowerCase();
+            const password = passwordInput.value;
+            const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+            if (requireUsername) {
+                if (!username || username.length > AUTH_MAX_USERNAME_LENGTH) {
+                    showToast(`Username is required (${AUTH_MAX_USERNAME_LENGTH} chars max).`, 'warn');
+                    return null;
+                }
+            }
+            if (!emailOk) {
+                showToast('Enter a valid email address.', 'warn');
+                return null;
+            }
+            if (password.length < AUTH_MIN_PASSWORD_LENGTH || password.length > AUTH_MAX_PASSWORD_LENGTH) {
+                showToast(`Password must be ${AUTH_MIN_PASSWORD_LENGTH}-${AUTH_MAX_PASSWORD_LENGTH} characters.`, 'warn');
+                return null;
+            }
+
+            return { username, email, password };
+        }
+
         function formatDateInputValue(d) {
             // Always build YYYY-MM-DD in local time (avoids timezone shifts)
             const y = d.getFullYear();
@@ -282,6 +388,7 @@
             if (clamped !== v) showToast(`Goal weight clamped to ${GOAL_MIN_KG}–${GOAL_MAX_KG} kg.`, 'warn');
             goalInput.value = clamped.toFixed(1);
             localStorage.setItem(STORAGE_KEYS.goal, String(clamped));
+            queueCloudSave();
             updateDashboard();
         });
 
@@ -324,6 +431,133 @@
 
         function saveData() {
             localStorage.setItem(STORAGE_KEYS.data, JSON.stringify(weightData));
+            queueCloudSave();
+        }
+
+        async function saveToCloud() {
+            if (!supabase || !currentUser) return;
+            setSyncStatus('Syncing…', 'neutral');
+
+            const entriesToSave = weightData.map(row => ({
+                user_id: currentUser.id,
+                entry_date: row.date,
+                raw_weight: clamp(Number(row.raw), WEIGHT_MIN_KG, WEIGHT_MAX_KG),
+                protein: !!row.protein,
+                steps: !!row.steps,
+                context: String(row.context || 'Normal').slice(0, CONTEXT_MAX_LENGTH)
+            }));
+
+            const { data: existingRows, error: selectError } = await supabase
+                .from('weight_entries')
+                .select('entry_date')
+                .eq('user_id', currentUser.id);
+            if (selectError) {
+                setSyncStatus(`Sync failed: ${selectError.message}`, 'error');
+                return;
+            }
+
+            const localDates = new Set(entriesToSave.map(r => r.entry_date));
+            const staleDates = (existingRows || [])
+                .map(r => r.entry_date)
+                .filter(date => !localDates.has(date));
+
+            if (staleDates.length > 0) {
+                const { error: deleteError } = await supabase
+                    .from('weight_entries')
+                    .delete()
+                    .eq('user_id', currentUser.id)
+                    .in('entry_date', staleDates);
+                if (deleteError) {
+                    setSyncStatus(`Sync failed: ${deleteError.message}`, 'error');
+                    return;
+                }
+            }
+
+            if (entriesToSave.length > 0) {
+                const { error: upsertError } = await supabase
+                    .from('weight_entries')
+                    .upsert(entriesToSave, { onConflict: 'user_id,entry_date' });
+                if (upsertError) {
+                    setSyncStatus(`Sync failed: ${upsertError.message}`, 'error');
+                    return;
+                }
+            }
+
+            const settingsPayload = {
+                user_id: currentUser.id,
+                goal_weight: clamp(parseFloat(goalInput.value), GOAL_MIN_KG, GOAL_MAX_KG),
+                start_weight: Number.isFinite(savedStartWeight) ? clamp(savedStartWeight, WEIGHT_MIN_KG, WEIGHT_MAX_KG) : null
+            };
+            const { error: settingsError } = await supabase
+                .from('user_settings')
+                .upsert(settingsPayload);
+            if (settingsError) {
+                setSyncStatus(`Sync failed: ${settingsError.message}`, 'error');
+                return;
+            }
+
+            setSyncStatus(`Synced ${entriesToSave.length} entries at ${new Date().toLocaleTimeString()}.`, 'ok');
+        }
+
+        function queueCloudSave() {
+            if (!supabase || !currentUser) return;
+            window.clearTimeout(cloudSyncTimer);
+            cloudSyncTimer = window.setTimeout(() => {
+                saveToCloud().catch(err => setSyncStatus(`Sync failed: ${err.message}`, 'error'));
+            }, CLOUD_SAVE_DEBOUNCE_MS);
+        }
+
+        async function loadFromCloud() {
+            if (!supabase || !currentUser) return;
+            setSyncStatus('Loading cloud data…', 'neutral');
+
+            const [{ data: rows, error: dataError }, { data: settings, error: settingsError }] = await Promise.all([
+                supabase
+                    .from('weight_entries')
+                    .select('entry_date, raw_weight, protein, steps, context')
+                    .eq('user_id', currentUser.id)
+                    .order('entry_date', { ascending: true }),
+                supabase
+                    .from('user_settings')
+                    .select('goal_weight, start_weight')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle()
+            ]);
+
+            if (dataError || settingsError) {
+                const message = dataError ? dataError.message : settingsError.message;
+                setSyncStatus(`Load failed: ${message}`, 'error');
+                return;
+            }
+
+            weightData = (rows || []).map(r => ({
+                date: r.entry_date,
+                raw: Number(r.raw_weight),
+                protein: !!r.protein,
+                steps: !!r.steps,
+                context: r.context || 'Normal'
+            }));
+            normalizeData();
+
+            if (settings && Number.isFinite(Number(settings.goal_weight))) {
+                goalInput.value = clamp(Number(settings.goal_weight), GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
+            }
+            if (settings && Number.isFinite(Number(settings.start_weight))) {
+                savedStartWeight = clamp(Number(settings.start_weight), WEIGHT_MIN_KG, WEIGHT_MAX_KG);
+            } else {
+                savedStartWeight = null;
+            }
+
+            localStorage.setItem(STORAGE_KEYS.data, JSON.stringify(weightData));
+            localStorage.setItem(STORAGE_KEYS.goal, String(goalInput.value));
+            if (Number.isFinite(savedStartWeight)) {
+                localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+            } else {
+                localStorage.removeItem(STORAGE_KEYS.startWeight);
+            }
+
+            setSyncStatus(`Cloud data loaded (${weightData.length} entries).`, 'ok');
+            updateDashboard();
         }
 
         function updateProgress(latestAvg, goalWeight) {
@@ -762,6 +996,7 @@
                 }
 
                 showToast('Backup restored.', 'ok');
+                queueCloudSave();
                 updateDashboard();
             };
             reader.onerror = () => showToast('Could not read file.', 'danger');
@@ -776,8 +1011,104 @@
             e.target.value = '';
         });
 
-        // Run on load
-        updateDashboard();
+        async function signUp() {
+            if (!supabase) return;
+            const input = validateAuthInput(true);
+            if (!input) return;
+
+            const { error } = await supabase.auth.signUp({
+                email: input.email,
+                password: input.password,
+                options: {
+                    data: { username: input.username }
+                }
+            });
+            if (error) {
+                showToast(error.message, 'danger');
+                return;
+            }
+            showToast('Sign-up successful. Check your email for confirmation if required.', 'ok');
+            passwordInput.value = '';
+        }
+
+        async function login() {
+            if (!supabase) return;
+            const input = validateAuthInput(false);
+            if (!input) return;
+
+            const { error } = await supabase.auth.signInWithPassword({
+                email: input.email,
+                password: input.password
+            });
+            if (error) {
+                showToast(error.message, 'danger');
+                return;
+            }
+            showToast('Logged in.', 'ok');
+            passwordInput.value = '';
+        }
+
+        async function logout() {
+            if (!supabase) return;
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+                showToast(error.message, 'danger');
+                return;
+            }
+            currentUser = null;
+            setAuthUIState();
+            updateDashboard();
+            showToast('Logged out.', 'ok');
+        }
+
+        async function initAuthAndSync() {
+            setAuthUIState();
+            updateDashboard();
+            if (!supabase) return;
+
+            const { data: sessionResult, error } = await supabase.auth.getSession();
+            if (error) {
+                setSyncStatus(`Auth error: ${error.message}`, 'error');
+                return;
+            }
+
+            currentUser = sessionResult && sessionResult.session ? sessionResult.session.user : null;
+            setAuthUIState();
+            if (currentUser) {
+                await loadFromCloud();
+            }
+
+            supabase.auth.onAuthStateChange(async (_event, session) => {
+                const previousUserId = currentUser ? currentUser.id : null;
+                currentUser = session ? session.user : null;
+                setAuthUIState();
+
+                if (currentUser) {
+                    if (previousUserId !== currentUser.id) {
+                        await loadFromCloud();
+                    }
+                } else {
+                    setSyncStatus('Signed out. Using local data only.', 'warn');
+                }
+            });
+        }
+
+        signUpBtn.addEventListener('click', () => {
+            signUp().catch(err => showToast(err.message, 'danger'));
+        });
+        loginBtn.addEventListener('click', () => {
+            login().catch(err => showToast(err.message, 'danger'));
+        });
+        logoutBtn.addEventListener('click', () => {
+            logout().catch(err => showToast(err.message, 'danger'));
+        });
+
+        document.getElementById('authForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            login().catch(err => showToast(err.message, 'danger'));
+        });
+
+        initAuthAndSync();
     </script>
 </body>
 </html>
