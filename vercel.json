@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/burn%20app.html",
+      "destination": "/"
+    }
+  ]
+}
