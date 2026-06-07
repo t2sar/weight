@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Burn Rate Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(51, 65, 85, 0.8); backdrop-filter: blur(10px); }
+        .tripwire-danger { animation: pulse-red 2s infinite; }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+    </style>
+
+    <!-- Firebase SDK Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        // ==========================================
+        // TODO: ADD YOUR FIREBASE CONFIGURATION HERE
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        let app, auth, db, provider;
+        try {
+            // Only init if the placeholder is replaced
+            if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                provider = new GoogleAuthProvider();
+            } else {
+                console.warn("Firebase not configured. Working in Local-Only mode.");
+            }
+        } catch (e) {
+            console.error("Firebase init error", e);
+        }
+        
+        window.firebaseAuth = auth;
+        window.firebaseDb = db;
+        window.firebaseProvider = provider;
+        window.signInWithPopup = signInWithPopup;
+        window.signOut = signOut;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.getDoc = getDoc;
+        window.onAuthStateChanged = onAuthStateChanged;
+    </script>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+
+        <!-- Header & Goal Setting -->
+        <div class="glass-panel p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">Burn Rate Dashboard</h1>
+                <p class="text-slate-400 text-sm mt-1">Data-driven fat loss. No emotion, just velocity.</p>
+                <div class="flex items-center gap-3 mt-3">
+                    <span id="authStatus" class="text-slate-500 text-xs font-semibold px-2 py-1 bg-slate-800 border border-slate-700 rounded">Local Only</span>
+                    <button id="authBtn" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-1.5 px-3 rounded transition-colors shadow-lg flex items-center gap-2">
+                        <svg class="w-4 h-4 bg-white rounded-full p-0.5" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
+                        Sign in with Google
+                    </button>
+                </div>
+            </div>
+            <div class="flex flex-col items-end gap-2">
+                <div class="flex items-center gap-3">
+                    <label for="goalWeightInput" class="text-sm text-slate-300">Goal Weight (kg):</label>
+                    <input type="number" id="goalWeightInput" step="0.1" min="30" max="300" inputmode="decimal" aria-label="Goal weight in kilograms" class="w-24 bg-slate-800 border border-slate-600 rounded p-2 text-white text-center focus:outline-none focus:border-emerald-400">
+                </div>
+                <p class="text-slate-500 text-xs mt-1">Saves locally + cloud when signed in.</p>
+            </div>
+        </div>
+
+        <!-- KPI Widgets -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="glass-panel p-5 rounded-xl">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Kg To Go</h3>
+                <div id="kgToGo" class="text-4xl font-black text-white" aria-live="polite">--</div>
+                <div class="mt-3">
+                    <div class="flex justify-between text-xs text-slate-400">
+                        <span>Progress</span>
+                        <span id="progressText">--</span>
+                    </div>
+                    <div class="w-full h-2 rounded bg-slate-800 mt-2 overflow-hidden" aria-hidden="true">
+                        <div id="progressBar" class="h-2 bg-emerald-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-panel p-5 rounded-xl">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Current 7-Day Avg</h3>
+                <div id="currentAvg" class="text-4xl font-black text-emerald-400" aria-live="polite">--</div>
+            </div>
+            <div class="glass-panel p-5 rounded-xl">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">Daily Burn Rate</h3>
+                <div id="burnRate" class="text-4xl font-black text-cyan-400" aria-live="polite">--</div>
+                <p class="text-xs text-slate-500 mt-1">Implied caloric deficit</p>
+            </div>
+            <div id="plateauCard" class="glass-panel p-5 rounded-xl border-l-4 border-slate-600" role="status" aria-live="polite">
+                <h3 class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">System Status</h3>
+                <div id="systemStatus" class="text-2xl font-bold text-slate-300 mt-2">AWAITING DATA</div>
+                <p id="systemStatusHint" class="text-xs text-slate-500 mt-2">Log at least 10 days to enable plateau detection.</p>
+            </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="glass-panel p-4 md:p-6 rounded-2xl w-full h-72 md:h-80 relative">
+            <canvas id="weightChart" aria-label="Weight chart" role="img"></canvas>
+        </div>
+
+        <!-- Data Entry & Table -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Input Form -->
+            <div class="glass-panel p-6 rounded-2xl lg:col-span-1 h-fit">
+                <h2 class="text-xl font-bold mb-4">Log Daily Data</h2>
+
+                <div id="toast" class="hidden mb-4 p-3 rounded bg-slate-800 border border-slate-700 text-sm" role="alert" aria-live="assertive"></div>
+
+                <form id="entryForm" class="space-y-4">
+                    <div>
+                        <label for="dateInput" class="block text-sm text-slate-400 mb-1">Date</label>
+                        <input type="date" id="dateInput" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" aria-label="Date">
+                        <p class="text-xs text-slate-500 mt-1">Future dates are blocked.</p>
+                    </div>
+                    <div>
+                        <label for="weightInput" class="block text-sm text-slate-400 mb-1">Raw Weight (kg)</label>
+                        <input type="number" id="weightInput" step="0.1" min="30" max="400" inputmode="decimal" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white" aria-label="Raw weight in kilograms">
+                        <p class="text-xs text-slate-500 mt-1">Valid range: 30–400 kg.</p>
+                    </div>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="proteinInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600" aria-label="Hit protein target">
+                            <span class="text-sm text-slate-300">Hit Protein?</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="stepsInput" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-800 border-slate-600" aria-label="Hit 10k steps">
+                            <span class="text-sm text-slate-300">10k Steps?</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label for="contextInput" class="block text-sm text-slate-400 mb-1">Context / NSV</label>
+                        <select id="contextInput" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2" aria-label="Context">
+                            <option value="Normal">Normal</option>
+                            <option value="Heavy Carbs/Salt">Heavy Carbs/Salt</option>
+                            <option value="Poor Sleep">Poor Sleep</option>
+                            <option value="Sore/Inflamed">Sore/Inflamed</option>
+                            <option value="Sick">Sick</option>
+                        </select>
+                    </div>
+
+                    <div class="flex gap-2 flex-wrap">
+                        <button type="submit" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded transition-colors min-w-[120px]">
+                            Log Entry
+                        </button>
+                        <button type="button" id="backupBtn" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors" aria-label="Backup data">
+                            Backup
+                        </button>
+                        <label class="sr-only" for="restoreFile">Restore backup JSON</label>
+                        <input type="file" id="restoreFile" accept="application/json" class="hidden" />
+                        <button type="button" id="restoreBtn" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors" aria-label="Restore data">
+                            Restore
+                        </button>
+                    </div>
+                    
+                    <div class="pt-4 border-t border-slate-700 mt-4">
+                        <button type="button" id="clearAllBtn" class="w-full bg-rose-900/40 hover:bg-rose-800/80 border border-rose-800 text-rose-300 font-bold py-2 px-4 rounded transition-colors" aria-label="Clear all data">
+                            Clear All Data (Delete Log)
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Data Table -->
+            <div class="glass-panel p-6 rounded-2xl lg:col-span-2 overflow-x-auto">
+                <div class="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-3">
+                    <h2 class="text-xl font-bold">The Ledger</h2>
+                    <div class="flex items-center gap-2">
+                        <button id="undoBtn" class="hidden bg-slate-700 hover:bg-slate-600 text-white text-sm py-1 px-3 rounded transition-colors" type="button">
+                            Undo Delete
+                        </button>
+                        <button id="exportBtn" type="button" class="bg-slate-700 hover:bg-slate-600 text-white text-sm py-1 px-3 rounded transition-colors flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                            Export CSV
+                        </button>
+                    </div>
+                </div>
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="text-xs text-slate-400 uppercase bg-slate-800/50">
+                        <tr>
+                            <th class="px-4 py-3 rounded-tl-lg">Date</th>
+                            <th class="px-4 py-3">Raw (kg)</th>
+                            <th class="px-4 py-3 font-bold text-emerald-400">7-Day Avg</th>
+                            <th class="px-4 py-3">P / S</th>
+                            <th class="px-4 py-3 rounded-tr-lg">Context</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-700/50">
+                        <!-- Rows injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEYS = {
+            data: 'burnRateData',
+            goal: 'burnRateGoal',
+            startWeight: 'burnRateStartWeight'
+        };
+
+        const AVG_WINDOW_DAYS = 7;
+        const BURN_RATE_LOOKBACK_DAYS = 7; 
+        const PLATEAU_LOOKBACK_DAYS = 10;
+        const PLATEAU_KG_THRESHOLD = 0.2;
+        const KCAL_PER_KG = 7700;
+
+        const GOAL_DEFAULT_KG = 75.0;
+        const GOAL_MIN_KG = 30;
+        const GOAL_MAX_KG = 300;
+        const WEIGHT_MIN_KG = 30;
+        const WEIGHT_MAX_KG = 400;
+
+        // Firebase State
+        let currentUser = null;
+
+        function safeParseJSON(value, fallback) {
+            try {
+                return JSON.parse(value);
+            } catch {
+                return fallback;
+            }
+        }
+
+        let weightData = safeParseJSON(localStorage.getItem(STORAGE_KEYS.data), []) || [];
+        let savedGoalRaw = localStorage.getItem(STORAGE_KEYS.goal);
+        let savedGoal = savedGoalRaw !== null ? parseFloat(savedGoalRaw) : GOAL_DEFAULT_KG;
+        if (!Number.isFinite(savedGoal)) savedGoal = GOAL_DEFAULT_KG;
+
+        let savedStartWeightRaw = localStorage.getItem(STORAGE_KEYS.startWeight);
+        let savedStartWeight = savedStartWeightRaw !== null ? parseFloat(savedStartWeightRaw) : null;
+        if (!Number.isFinite(savedStartWeight)) savedStartWeight = null;
+
+        const goalInput = document.getElementById('goalWeightInput');
+        const dateInput = document.getElementById('dateInput');
+        const weightInput = document.getElementById('weightInput');
+        const toast = document.getElementById('toast');
+
+        goalInput.value = clamp(savedGoal, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
+
+        const todayStr = formatDateInputValue(new Date());
+        dateInput.max = todayStr;
+        dateInput.value = todayStr;
+
+        let myChart = null;
+        let lastDeleted = null; 
+
+        function clamp(n, min, max) {
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function showToast(message, variant = 'info') {
+            const variants = {
+                info: 'bg-slate-800 border-slate-700 text-slate-200',
+                ok: 'bg-emerald-900/40 border-emerald-700 text-emerald-200',
+                warn: 'bg-amber-900/40 border-amber-700 text-amber-200',
+                danger: 'bg-rose-900/40 border-rose-700 text-rose-200'
+            };
+            toast.className = `mb-4 p-3 rounded border text-sm font-medium ${variants[variant] || variants.info}`;
+            toast.textContent = message;
+            toast.classList.remove('hidden');
+            window.clearTimeout(showToast._t);
+            showToast._t = window.setTimeout(() => toast.classList.add('hidden'), 4000);
+        }
+
+        function formatDateInputValue(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function parseDateValue(dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, (m - 1), d);
+        }
+
+        goalInput.addEventListener('change', function(e) {
+            const v = parseFloat(e.target.value);
+            if (!Number.isFinite(v)) {
+                showToast('Goal weight must be a number.', 'warn');
+                goalInput.value = clamp(GOAL_DEFAULT_KG, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
+                return;
+            }
+            const clamped = clamp(v, GOAL_MIN_KG, GOAL_MAX_KG);
+            if (clamped !== v) showToast(`Goal weight clamped to ${GOAL_MIN_KG}–${GOAL_MAX_KG} kg.`, 'warn');
+            goalInput.value = clamped.toFixed(1);
+            localStorage.setItem(STORAGE_KEYS.goal, String(clamped));
+            updateDashboard();
+            saveToFirestore();
+        });
+
+        function normalizeData() {
+            weightData = (weightData || []).filter(r => r && typeof r.date === 'string' && Number.isFinite(r.raw));
+            const map = new Map();
+            for (const row of weightData) {
+                map.set(row.date, {
+                    date: row.date,
+                    raw: Number(row.raw),
+                    protein: !!row.protein,
+                    steps: !!row.steps,
+                    context: row.context || 'Normal'
+                });
+            }
+            weightData = Array.from(map.values());
+            weightData.sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date));
+        }
+
+        function calculateMetrics() {
+            normalizeData();
+            for (let i = 0; i < weightData.length; i++) {
+                let sum = 0;
+                let count = 0;
+                for (let j = Math.max(0, i - (AVG_WINDOW_DAYS - 1)); j <= i; j++) {
+                    sum += weightData[j].raw;
+                    count++;
+                }
+                weightData[i].avg7 = parseFloat((sum / count).toFixed(2));
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEYS.data, JSON.stringify(weightData));
+            saveToFirestore();
+        }
+
+        // --- FIREBASE SYNC LOGIC ---
+
+        async function saveToFirestore() {
+            if (!currentUser || !window.firebaseDb) return;
+            try {
+                const docRef = window.doc(window.firebaseDb, "users", currentUser.uid);
+                await window.setDoc(docRef, {
+                    goalWeight: parseFloat(goalInput.value),
+                    startWeight: savedStartWeight,
+                    data: weightData,
+                    lastUpdated: new Date().toISOString()
+                });
+                console.log("Synced to cloud.");
+            } catch (e) {
+                console.error("Error saving to Firestore", e);
+                showToast("Failed to sync to cloud", "danger");
+            }
+        }
+
+        async function loadFromFirestore() {
+            if (!currentUser || !window.firebaseDb) return;
+            try {
+                showToast('Syncing from cloud...', 'info');
+                const docRef = window.doc(window.firebaseDb, "users", currentUser.uid);
+                const docSnap = await window.getDoc(docRef);
+                
+                if (docSnap.exists()) {
+                    const cloudData = docSnap.data();
+                    const cloudWeightData = cloudData.data || [];
+                    
+                    // Merge local and cloud by date
+                    const map = new Map();
+                    for (const row of weightData) map.set(row.date, row);
+                    for (const row of cloudWeightData) map.set(row.date, row);
+                    
+                    weightData = Array.from(map.values());
+                    normalizeData();
+                    localStorage.setItem(STORAGE_KEYS.data, JSON.stringify(weightData));
+                    
+                    if (Number.isFinite(cloudData.goalWeight)) {
+                        goalInput.value = clamp(cloudData.goalWeight, GOAL_MIN_KG, GOAL_MAX_KG).toFixed(1);
+                        localStorage.setItem(STORAGE_KEYS.goal, goalInput.value);
+                    }
+                    if (cloudData.startWeight !== undefined) {
+                        savedStartWeight = cloudData.startWeight;
+                        if (savedStartWeight !== null) {
+                            localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+                        } else {
+                            localStorage.removeItem(STORAGE_KEYS.startWeight);
+                        }
+                    }
+                    
+                    updateDashboard();
+                    showToast('Cloud sync complete.', 'ok');
+                    saveToFirestore(); // push merged data back up
+                } else {
+                    // First time, push local data up
+                    saveToFirestore();
+                    showToast('First sync complete.', 'ok');
+                }
+            } catch (e) {
+                console.error("Error loading from Firestore", e);
+                showToast("Failed to pull from cloud. Check config/permissions.", "danger");
+            }
+        }
+
+        // Setup Firebase Auth Listener
+        window.addEventListener('DOMContentLoaded', () => {
+            // Poll for window.firebaseAuth since module loads async
+            const checkAuth = setInterval(() => {
+                if (window.firebaseAuth) {
+                    clearInterval(checkAuth);
+                    window.onAuthStateChanged(window.firebaseAuth, async (user) => {
+                        const authBtn = document.getElementById('authBtn');
+                        const authStatus = document.getElementById('authStatus');
+                        
+                        if (user) {
+                            currentUser = user;
+                            authBtn.innerHTML = 'Sign Out';
+                            authBtn.classList.replace('bg-blue-600', 'bg-slate-700');
+                            authBtn.classList.replace('hover:bg-blue-500', 'hover:bg-slate-600');
+                            authStatus.innerHTML = `<span class="text-emerald-400">Synced: ${user.email}</span>`;
+                            authStatus.classList.replace('border-slate-700', 'border-emerald-700/50');
+                            
+                            await loadFromFirestore();
+                        } else {
+                            currentUser = null;
+                            authBtn.innerHTML = `
+                                <svg class="w-4 h-4 bg-white rounded-full p-0.5" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
+                                Sign in with Google`;
+                            authBtn.classList.replace('bg-slate-700', 'bg-blue-600');
+                            authBtn.classList.replace('hover:bg-slate-600', 'hover:bg-blue-500');
+                            authStatus.innerHTML = 'Local Only';
+                            authStatus.classList.replace('border-emerald-700/50', 'border-slate-700');
+                        }
+                    });
+                }
+            }, 50);
+            // Stop checking after 2 seconds
+            setTimeout(() => clearInterval(checkAuth), 2000);
+        });
+
+        document.getElementById('authBtn').addEventListener('click', () => {
+            if (!window.firebaseAuth) {
+                showToast('Firebase not configured. Please add your config in the code.', 'danger');
+                return;
+            }
+            if (currentUser) {
+                window.signOut(window.firebaseAuth).then(() => {
+                    showToast('Signed out. Working locally.', 'info');
+                });
+            } else {
+                window.signInWithPopup(window.firebaseAuth, window.firebaseProvider)
+                    .catch(error => {
+                        console.error(error);
+                        showToast('Sign-in failed.', 'danger');
+                    });
+            }
+        });
+
+        // -----------------------------
+
+        function updateProgress(latestAvg, goalWeight) {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+
+            if (!Number.isFinite(latestAvg) || !Number.isFinite(goalWeight)) {
+                progressBar.style.width = '0%';
+                progressText.textContent = '--';
+                return;
+            }
+
+            if (!Number.isFinite(savedStartWeight) || savedStartWeight === null) {
+                savedStartWeight = latestAvg;
+                localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+                saveToFirestore();
+            }
+
+            const start = savedStartWeight;
+            const totalToLose = Math.max(0.0001, start - goalWeight);
+            const lostSoFar = start - latestAvg;
+            const pct = clamp((lostSoFar / totalToLose) * 100, 0, 100);
+
+            progressBar.style.width = `${pct.toFixed(1)}%`;
+            progressText.textContent = `${pct.toFixed(0)}%`;
+        }
+
+        function updateDashboard() {
+            calculateMetrics();
+            const goalWeight = parseFloat(goalInput.value);
+            const statusEl = document.getElementById('systemStatus');
+            const hintEl = document.getElementById('systemStatusHint');
+            const cardEl = document.getElementById('plateauCard');
+            const burnEl = document.getElementById('burnRate');
+
+            if (!weightData || weightData.length === 0) {
+                document.getElementById('currentAvg').innerText = '--';
+                document.getElementById('kgToGo').innerText = '--';
+                burnEl.innerText = '--';
+                burnEl.className = 'text-4xl font-black text-slate-400';
+                burnEl.style.fontSize = '';
+                statusEl.innerText = 'AWAITING DATA';
+                statusEl.className = 'text-2xl font-bold text-slate-300 mt-2';
+                hintEl.innerText = 'Log some days to compute your signal and burn rate.';
+                cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-slate-600';
+
+                document.getElementById('progressBar').style.width = '0%';
+                document.getElementById('progressText').textContent = '--';
+
+                renderTable();
+                renderChart();
+                return;
+            }
+
+            const latest = weightData[weightData.length - 1];
+            const latestAvg = Number.isFinite(latest.avg7) ? latest.avg7 : null;
+            document.getElementById('currentAvg').innerText = latestAvg !== null ? latestAvg.toFixed(2) : '--';
+
+            const kgToGo = (latestAvg !== null ? (latestAvg - goalWeight) : null);
+            document.getElementById('kgToGo').innerText = (kgToGo !== null && kgToGo > 0) ? kgToGo.toFixed(1) : '0.0';
+
+            updateProgress(latestAvg, goalWeight);
+
+            let burnRateText = '--';
+            let deficitColor = 'text-slate-400';
+            burnEl.style.fontSize = '';
+
+            const neededDaysForBurn = AVG_WINDOW_DAYS + BURN_RATE_LOOKBACK_DAYS;
+            if (weightData.length >= neededDaysForBurn) {
+                const currentAvg = latest.avg7;
+                const pastIndex = weightData.length - 1 - BURN_RATE_LOOKBACK_DAYS;
+                const pastAvg = weightData[pastIndex].avg7;
+
+                const weightLost = pastAvg - currentAvg;
+                const dailyDeficit = (weightLost * KCAL_PER_KG) / BURN_RATE_LOOKBACK_DAYS;
+
+                if (dailyDeficit > 0) {
+                    burnRateText = `-${Math.round(dailyDeficit)} kcal`;
+                    deficitColor = 'text-cyan-400';
+                } else if (dailyDeficit < 0) {
+                    burnRateText = `+${Math.abs(Math.round(dailyDeficit))} kcal`;
+                    deficitColor = 'text-rose-400';
+                } else {
+                    burnRateText = '0 kcal';
+                    deficitColor = 'text-slate-300';
+                }
+            } else {
+                burnRateText = `Need ${neededDaysForBurn} days`;
+                burnEl.style.fontSize = '1.25rem';
+            }
+
+            burnEl.innerText = burnRateText;
+            burnEl.className = `text-4xl font-black ${deficitColor}`;
+
+            if (weightData.length >= PLATEAU_LOOKBACK_DAYS) {
+                const current = latest.avg7;
+                const past = weightData[weightData.length - PLATEAU_LOOKBACK_DAYS].avg7;
+                const delta = past - current;
+                if (delta < PLATEAU_KG_THRESHOLD) {
+                    statusEl.innerText = 'PLATEAU DETECTED';
+                    statusEl.className = 'text-2xl font-bold text-red-500 mt-2';
+                    hintEl.innerText = `Less than ${PLATEAU_KG_THRESHOLD.toFixed(1)} kg change over ${PLATEAU_LOOKBACK_DAYS} days.`;
+                    cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-red-500 tripwire-danger';
+                } else {
+                    statusEl.innerText = 'OPTIMAL BURN';
+                    statusEl.className = 'text-2xl font-bold text-emerald-400 mt-2';
+                    hintEl.innerText = `${delta.toFixed(2)} kg down over ${PLATEAU_LOOKBACK_DAYS} days.`;
+                    cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-emerald-500';
+                }
+            } else {
+                statusEl.innerText = 'GATHERING DATA';
+                statusEl.className = 'text-2xl font-bold text-slate-300 mt-2';
+                hintEl.innerText = `Need ${PLATEAU_LOOKBACK_DAYS} days for plateau detection.`;
+                cardEl.className = 'glass-panel p-5 rounded-xl border-l-4 border-slate-600';
+            }
+
+            renderTable();
+            renderChart();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            const reversedData = [...weightData].reverse();
+
+            reversedData.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/50 transition-colors';
+
+                const pText = row.protein ? 'Protein: Yes' : 'Protein: No';
+                const sText = row.steps ? 'Steps: Yes' : 'Steps: No';
+                const pIcon = row.protein ? '🍖' : '❌';
+                const sIcon = row.steps ? '👟' : '❌';
+
+                const trueIndex = weightData.length - 1 - index;
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 whitespace-nowrap flex justify-between items-center">
+                        <span>${row.date}</span>
+                        <button type="button" onclick="deleteEntry(${trueIndex})" class="text-rose-500 hover:text-rose-400 ml-2 font-bold" title="Delete entry" aria-label="Delete entry for ${row.date}">✕</button>
+                    </td>
+                    <td class="px-4 py-3 text-slate-400">${Number(row.raw).toFixed(1)}</td>
+                    <td class="px-4 py-3 font-bold text-emerald-400">${Number.isFinite(row.avg7) ? Number(row.avg7).toFixed(2) : '-'}</td>
+                    <td class="px-4 py-3 text-xs" aria-label="${pText}, ${sText}"><span aria-hidden="true">${pIcon} ${sIcon}</span></td>
+                    <td class="px-4 py-3 text-xs text-slate-400">${row.context || ''}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderChart() {
+            const canvas = document.getElementById('weightChart');
+            const ctx = canvas.getContext('2d');
+
+            if (!weightData || weightData.length === 0) {
+                if (myChart) myChart.destroy();
+                return;
+            }
+
+            const MAX_POINTS = 180;
+            const sliceStart = Math.max(0, weightData.length - MAX_POINTS);
+            const chartData = weightData.slice(sliceStart);
+
+            const labels = chartData.map(d => {
+                const date = parseDateValue(d.date);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+            });
+            const rawData = chartData.map(d => d.raw);
+            const avgData = chartData.map(d => d.avg7);
+
+            if (myChart) {
+                myChart.destroy();
+            }
+
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Raw Weight',
+                            data: rawData,
+                            borderColor: 'rgba(148, 163, 184, 0.3)',
+                            backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: rawData.length > 60 ? 0 : 3,
+                            tension: 0.3
+                        },
+                        {
+                            label: '7-Day Signal',
+                            data: avgData,
+                            borderColor: '#34d399',
+                            backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                            borderWidth: 4,
+                            pointBackgroundColor: '#0f172a',
+                            pointBorderColor: '#34d399',
+                            pointBorderWidth: 2,
+                            pointRadius: avgData.length > 60 ? 0 : 4,
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#34d399',
+                            padding: 12,
+                            borderColor: 'rgba(51, 65, 85, 1)',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: Math.floor(Math.min(...rawData) - 1),
+                            max: Math.ceil(Math.max(...rawData) + 1),
+                            grid: { color: 'rgba(51, 65, 85, 0.5)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        document.getElementById('entryForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const dateStr = dateInput.value;
+            if (!dateStr) {
+                showToast('Please pick a date.', 'warn');
+                return;
+            }
+
+            if (dateStr > todayStr) {
+                showToast('Future dates are not allowed.', 'danger');
+                dateInput.value = todayStr;
+                return;
+            }
+
+            const raw = parseFloat(weightInput.value);
+            if (!Number.isFinite(raw)) {
+                showToast('Weight must be a number.', 'warn');
+                return;
+            }
+            if (raw < WEIGHT_MIN_KG || raw > WEIGHT_MAX_KG) {
+                showToast(`Weight must be between ${WEIGHT_MIN_KG} and ${WEIGHT_MAX_KG} kg.`, 'warn');
+                return;
+            }
+
+            const newEntry = {
+                date: dateStr,
+                raw: raw,
+                protein: document.getElementById('proteinInput').checked,
+                steps: document.getElementById('stepsInput').checked,
+                context: document.getElementById('contextInput').value
+            };
+
+            const existingIndex = weightData.findIndex(d => d.date === newEntry.date);
+            if (existingIndex >= 0) {
+                weightData[existingIndex] = newEntry;
+                showToast(`Updated entry for ${newEntry.date}.`, 'ok');
+            } else {
+                weightData.push(newEntry);
+                showToast(`Logged entry for ${newEntry.date}.`, 'ok');
+            }
+
+            saveData();
+
+            normalizeData();
+            if (weightData.length === 1) {
+                savedStartWeight = newEntry.raw;
+                localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+                saveToFirestore();
+            }
+
+            updateDashboard();
+
+            const nextDate = parseDateValue(newEntry.date);
+            nextDate.setDate(nextDate.getDate() + 1);
+            const nextDateStr = formatDateInputValue(nextDate);
+            dateInput.value = nextDateStr <= todayStr ? nextDateStr : todayStr;
+
+            weightInput.value = '';
+            weightInput.focus();
+        });
+
+        function deleteEntry(index) {
+            const row = weightData[index];
+            if (!row) return;
+
+            if (confirm(`Delete entry for ${row.date}?`)) {
+                lastDeleted = { entry: row, index };
+                weightData.splice(index, 1);
+                saveData();
+                updateDashboard();
+
+                const undoBtn = document.getElementById('undoBtn');
+                undoBtn.classList.remove('hidden');
+                showToast('Entry deleted. You can Undo.', 'warn');
+
+                window.clearTimeout(deleteEntry._t);
+                deleteEntry._t = window.setTimeout(() => {
+                    lastDeleted = null;
+                    undoBtn.classList.add('hidden');
+                }, 12000);
+            }
+        }
+
+        document.getElementById('undoBtn').addEventListener('click', function() {
+            if (!lastDeleted) return;
+            const { entry, index } = lastDeleted;
+            weightData.splice(index, 0, entry);
+            lastDeleted = null;
+            this.classList.add('hidden');
+            saveData();
+            updateDashboard();
+            showToast('Delete undone.', 'ok');
+        });
+
+        // CLEAR ALL DATA LOGIC
+        document.getElementById('clearAllBtn').addEventListener('click', async function() {
+            if (confirm('WARNING: Are you sure you want to clear ALL data? This action cannot be undone and will delete your entire log.')) {
+                weightData = [];
+                savedStartWeight = null;
+                localStorage.removeItem(STORAGE_KEYS.data);
+                localStorage.removeItem(STORAGE_KEYS.startWeight);
+                
+                // If signed in, delete from Firestore
+                if (currentUser && window.firebaseDb) {
+                    try {
+                        const docRef = window.doc(window.firebaseDb, "users", currentUser.uid);
+                        await window.setDoc(docRef, { data: [], goalWeight: parseFloat(goalInput.value), startWeight: null });
+                        console.log("Cloud data cleared.");
+                    } catch (e) {
+                        console.error("Failed to clear cloud data", e);
+                    }
+                }
+                
+                updateDashboard();
+                showToast('All data has been cleared.', 'warn');
+            }
+        });
+
+        function exportToCSV() {
+            if (!weightData || weightData.length === 0) return alert('No data to export!');
+
+            let csvContent = 'Date,Raw Weight,7-Day Average,Hit Protein,10k Steps,Context\n';
+            weightData.forEach(row => {
+                let rowArray = [
+                    row.date,
+                    row.raw,
+                    row.avg7 || '',
+                    row.protein ? 'Yes' : 'No',
+                    row.steps ? 'Yes' : 'No',
+                    `"${String(row.context || '').replaceAll('"', '""')}"`
+                ];
+                csvContent += rowArray.join(',') + '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'burn_rate_export.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        document.getElementById('exportBtn').addEventListener('click', exportToCSV);
+
+        function exportBackupJSON() {
+            const payload = {
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                goalWeight: parseFloat(goalInput.value),
+                startWeight: savedStartWeight,
+                data: weightData
+            };
+
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'burn_rate_backup.json');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function restoreBackupJSON(file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const parsed = safeParseJSON(reader.result, null);
+                if (!parsed || typeof parsed !== 'object') {
+                    showToast('Invalid backup file.', 'danger');
+                    return;
+                }
+
+                const incoming = Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed.weightData) ? parsed.weightData : null);
+                if (!incoming) {
+                    showToast('Backup missing data array.', 'danger');
+                    return;
+                }
+
+                if (!confirm('This will replace your current data with the backup. Continue?')) return;
+
+                weightData = incoming;
+                normalizeData();
+                saveData(); // saves local and cloud
+
+                if (Number.isFinite(parsed.goalWeight)) {
+                    const g = clamp(parsed.goalWeight, GOAL_MIN_KG, GOAL_MAX_KG);
+                    goalInput.value = g.toFixed(1);
+                    localStorage.setItem(STORAGE_KEYS.goal, String(g));
+                }
+                if (Number.isFinite(parsed.startWeight)) {
+                    savedStartWeight = parsed.startWeight;
+                    localStorage.setItem(STORAGE_KEYS.startWeight, String(savedStartWeight));
+                } else {
+                    savedStartWeight = null;
+                    localStorage.removeItem(STORAGE_KEYS.startWeight);
+                }
+
+                showToast('Backup restored.', 'ok');
+                updateDashboard();
+                saveToFirestore();
+            };
+            reader.onerror = () => showToast('Could not read file.', 'danger');
+            reader.readAsText(file);
+        }
+
+        document.getElementById('backupBtn').addEventListener('click', exportBackupJSON);
+        document.getElementById('restoreBtn').addEventListener('click', () => document.getElementById('restoreFile').click());
+        document.getElementById('restoreFile').addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) restoreBackupJSON(file);
+            e.target.value = '';
+        });
+
+        updateDashboard();
+    </script>
+</body>
+</html>
